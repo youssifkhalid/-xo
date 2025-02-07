@@ -82,25 +82,50 @@
             margin-top: 20px;
             text-align: center;
         }
+        .online-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .online {
+            background-color: #28a745;
+        }
+        .offline {
+            background-color: #dc3545;
+        }
+        #gameIdDisplay {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        #timer {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
     <div class="container mt-5">
         <h1 class="text-center mb-4 animate__animated animate__bounceIn">لعبة XO المتطورة جدًا</h1>
         <div id="gameContainer" class="d-none">
+            <div id="gameIdDisplay" class="text-center mb-3"></div>
             <div id="playerInfo">
                 <div id="player1" class="player-card">
-                    <h3>اللاعب X</h3>
+                    <h3><span class="online-status"></span> <span class="player-name">اللاعب X</span></h3>
                     <p>النقاط: <span id="scoreX">0</span></p>
                 </div>
                 <div id="player2" class="player-card">
-                    <h3>اللاعب O</h3>
+                    <h3><span class="online-status"></span> <span class="player-name">اللاعب O</span></h3>
                     <p>النقاط: <span id="scoreO">0</span></p>
                 </div>
             </div>
             <div id="board" class="mb-4"></div>
             <div id="gameInfo">
                 <div id="status" class="alert alert-info" role="alert"></div>
+                <div id="timer" class="mb-2">الوقت المتبقي: <span id="timeLeft">30</span> ثانية</div>
                 <button id="resetButton" class="btn btn-primary">إعادة اللعب</button>
                 <button id="newGameButton" class="btn btn-success">لعبة جديدة</button>
             </div>
@@ -149,6 +174,7 @@
         let scores = { X: 0, O: 0 };
         let gamesPlayed = 0;
         let draws = 0;
+        let timerInterval = null;
 
         const boardElement = document.getElementById('board');
         const statusElement = document.getElementById('status');
@@ -170,6 +196,8 @@
         const messagesElement = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
         const sendMessageButton = document.getElementById('sendMessage');
+        const gameIdDisplay = document.getElementById('gameIdDisplay');
+        const timerElement = document.getElementById('timeLeft');
 
         createGameButton.addEventListener('click', createGame);
         joinGameButton.addEventListener('click', joinGame);
@@ -194,6 +222,7 @@
         function initializeGame() {
             gameContainer.classList.remove('d-none');
             joinContainer.classList.add('d-none');
+            gameIdDisplay.textContent = `معرف اللعبة: ${gameId}`;
             
             const gameRef = database.ref(`games/${gameId}`);
             gameRef.once('value', (snapshot) => {
@@ -202,15 +231,16 @@
                         board: ['', '', '', '', '', '', '', '', ''],
                         currentTurn: 'X',
                         players: {
-                            X: { name: playerName, score: 0 },
-                            O: { name: '', score: 0 }
+                            X: { name: playerName, score: 0, online: true },
+                            O: { name: '', score: 0, online: false }
                         },
                         gamesPlayed: 0,
                         draws: 0,
-                        messages: []
+                        messages: [],
+                        timer: 30
                     });
                 } else if (playerId === 'O') {
-                    gameRef.child('players/O').update({ name: playerName });
+                    gameRef.child('players/O').update({ name: playerName, online: true });
                 }
             });
 
@@ -222,6 +252,8 @@
                     updateScores(gameData.players);
                     updateGameStats(gameData.gamesPlayed, gameData.draws);
                     updateChat(gameData.messages);
+                    updateOnlineStatus(gameData.players);
+                    updateTimer(gameData.timer);
                     const winner = checkWin(gameData.board);
                     if (winner) {
                         handleGameEnd(winner);
@@ -230,6 +262,8 @@
             });
 
             createBoard();
+            setOnlineStatus(true);
+            startTimer();
         }
 
         function createBoard() {
@@ -249,6 +283,7 @@
                 if (gameData && gameData.currentTurn === playerId && gameData.board[index] === '') {
                     gameData.board[index] = playerId;
                     gameData.currentTurn = playerId === 'X' ? 'O' : 'X';
+                    gameData.timer = 30; // Reset timer after each move
                 }
                 return gameData;
             });
@@ -276,8 +311,8 @@
         function updateScores(players) {
             scoreXElement.textContent = players.X.score;
             scoreOElement.textContent = players.O.score;
-            player1Element.querySelector('h3').textContent = players.X.name;
-            player2Element.querySelector('h3').textContent = players.O.name;
+            player1Element.querySelector('.player-name').textContent = players.X.name;
+            player2Element.querySelector('.player-name').textContent = players.O.name;
         }
 
         function updateGameStats(gamesPlayed, draws) {
@@ -313,7 +348,8 @@
             const gameRef = database.ref(`games/${gameId}`);
             gameRef.update({
                 board: ['', '', '', '', '', '', '', '', ''],
-                currentTurn: 'X'
+                currentTurn: 'X',
+                timer: 30
             });
         }
 
@@ -324,6 +360,7 @@
                     gameData.board = ['', '', '', '', '', '', '', '', ''];
                     gameData.currentTurn = 'X';
                     gameData.gamesPlayed++;
+                    gameData.timer = 30;
                 }
                 return gameData;
             });
@@ -344,6 +381,7 @@
 
             statusElement.textContent = winner === 'تعادل' ? 'انتهت اللعبة بالتعادل!' : `الفائز هو ${winner}!`;
             statusElement.className = 'alert alert-info';
+            clearInterval(timerInterval);
         }
 
         function checkWin(board) {
@@ -365,6 +403,47 @@
             }
 
             return null;
+        }
+
+        function updateOnlineStatus(players) {
+            const player1Status = player1Element.querySelector('.online-status');
+            const player2Status = player2Element.querySelector('.online-status');
+
+            player1Status.classList.toggle('online', players.X.online);
+            player1Status.classList.toggle('offline', !players.X.online);
+            player2Status.classList.toggle('online', players.O.online);
+            player2Status.classList.toggle('offline', !players.O.online);
+        }
+
+        function setOnlineStatus(status) {
+            const gameRef = database.ref(`games/${gameId}/players/${playerId}`);
+            gameRef.update({ online: status });
+        }
+
+        window.addEventListener('beforeunload', () => {
+            setOnlineStatus(false);
+        });
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const gameRef = database.ref(`games/${gameId}`);
+                gameRef.transaction((gameData) => {
+                    if (gameData && gameData.timer > 0) {
+                        gameData.timer--;
+                        if (gameData.timer === 0) {
+                            // Time's up, switch turns
+                            gameData.currentTurn = gameData.currentTurn === 'X' ? 'O' : 'X';
+                            gameData.timer = 30; // Reset timer
+                        }
+                    }
+                    return gameData;
+                });
+            }, 1000);
+        }
+
+        function updateTimer(time) {
+            timerElement.textContent = time;
         }
     </script>
 </body>
