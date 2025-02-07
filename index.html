@@ -152,7 +152,9 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
+    <script type="module">
+        import { get, ref, update, increment } from "https://www.gstatic.com/firebasejs/11.3.0/firebase-database.js";
+
         // تهيئة Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDqjvhjWOgbJa6KppiywRIhiN8n0y313Rg",
@@ -278,14 +280,19 @@
         }
 
         function makeMove(index) {
-            const gameRef = database.ref(`games/${gameId}`);
-            gameRef.transaction((gameData) => {
-                if (gameData && gameData.currentTurn === playerId && gameData.board[index] === '') {
-                    gameData.board[index] = playerId;
-                    gameData.currentTurn = playerId === 'X' ? 'O' : 'X';
-                    gameData.timer = 30; // Reset timer after each move
+            const gameRef = ref(database, `games/${gameId}`);
+            get(gameRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const gameData = snapshot.val();
+                    if (gameData.currentTurn === playerId && gameData.board[index] === '') {
+                        const updates = {
+                            [`board/${index}`]: playerId,
+                            currentTurn: playerId === 'X' ? 'O' : 'X',
+                            timer: 30
+                        };
+                        update(gameRef, updates);
+                    }
                 }
-                return gameData;
             });
         }
 
@@ -354,30 +361,25 @@
         }
 
         function startNewGame() {
-            const gameRef = database.ref(`games/${gameId}`);
-            gameRef.transaction((gameData) => {
-                if (gameData) {
-                    gameData.board = ['', '', '', '', '', '', '', '', ''];
-                    gameData.currentTurn = 'X';
-                    gameData.gamesPlayed++;
-                    gameData.timer = 30;
-                }
-                return gameData;
-            });
+            const gameRef = ref(database, `games/${gameId}`);
+            const updates = {
+                board: ['', '', '', '', '', '', '', '', ''],
+                currentTurn: 'X',
+                timer: 30,
+                gamesPlayed: increment(1)
+            };
+            update(gameRef, updates);
         }
 
         function handleGameEnd(winner) {
-            const gameRef = database.ref(`games/${gameId}`);
-            gameRef.transaction((gameData) => {
-                if (gameData) {
-                    if (winner === 'تعادل') {
-                        gameData.draws++;
-                    } else {
-                        gameData.players[winner].score++;
-                    }
-                }
-                return gameData;
-            });
+            const gameRef = ref(database, `games/${gameId}`);
+            const updates = {};
+            if (winner === 'تعادل') {
+                updates.draws = increment(1);
+            } else {
+                updates[`players/${winner}/score`] = increment(1);
+            }
+            update(gameRef, updates);
 
             statusElement.textContent = winner === 'تعادل' ? 'انتهت اللعبة بالتعادل!' : `الفائز هو ${winner}!`;
             statusElement.className = 'alert alert-info';
@@ -427,17 +429,20 @@
         function startTimer() {
             clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                const gameRef = database.ref(`games/${gameId}`);
-                gameRef.transaction((gameData) => {
-                    if (gameData && gameData.timer > 0) {
-                        gameData.timer--;
-                        if (gameData.timer === 0) {
+                const gameRef = ref(database, `games/${gameId}`);
+                get(gameRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        const gameData = snapshot.val();
+                        if (gameData.timer > 0) {
+                            update(gameRef, { timer: gameData.timer - 1 });
+                        } else {
                             // Time's up, switch turns
-                            gameData.currentTurn = gameData.currentTurn === 'X' ? 'O' : 'X';
-                            gameData.timer = 30; // Reset timer
+                            update(gameRef, {
+                                currentTurn: gameData.currentTurn === 'X' ? 'O' : 'X',
+                                timer: 30
+                            });
                         }
                     }
-                    return gameData;
                 });
             }, 1000);
         }
@@ -448,3 +453,4 @@
     </script>
 </body>
 </html>
+
